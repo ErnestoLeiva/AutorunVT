@@ -155,8 +155,6 @@ jobs:
             echo
             echo "> Prefer not to trust a binary? [Download or clone the source](https://github.com/${GITHUB_REPOSITORY}), copy \`config.ini.example\` → \`config.ini\`, and run \`pythonw AutorunVT.pyw\` yourself (Python 3.10+)."
             echo
-            echo "An AI coding harness can do that for you if you want. Optional, not required."
-            echo
             echo "1. Unzip the folder (keep \`_internal\` next to the exe; do not move the exe alone)"
             echo "2. Edit \`config.ini\` beside \`AutorunVT.exe\` (1Password **or** plaintext \`api_key\`)"
             echo "3. Run \`AutorunVT.exe\`"
