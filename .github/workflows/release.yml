@@ -155,6 +155,8 @@ jobs:
             echo
             echo "> Prefer not to trust a binary? [Download or clone the source](https://github.com/${GITHUB_REPOSITORY}), copy \`config.ini.example\` → \`config.ini\`, and run \`pythonw AutorunVT.pyw\` yourself (Python 3.10+)."
             echo
+            echo "### Use Instructions"
+            echo
             echo "1. Unzip the folder (keep \`_internal\` next to the exe; do not move the exe alone)"
             echo "2. Edit \`config.ini\` beside \`AutorunVT.exe\` (1Password **or** plaintext \`api_key\`)"
             echo "3. Run \`AutorunVT.exe\`"
@@ -168,7 +170,7 @@ jobs:
               echo "First public portable build of AutorunVT."
               echo
             else
-              # Inline generated notes so VirusTotal can follow them.
+              # Changelog since prior tag; VirusTotal section follows.
               echo "## What's Changed"
               echo
               gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
@@ -188,7 +190,9 @@ jobs:
             echo
             echo "[![VirusTotal](https://img.shields.io/badge/VirusTotal-view_report-394EFF?style=for-the-badge\&logo=virustotal\&logoColor=white)](https://www.virustotal.com/gui/file/${SHA})"
             echo
-            echo "PyInstaller builds often show a few AV false positives. Check the hash above or run from source if you want to verify."
+            echo "> PyInstaller builds often show a few AV false positives. Check the hash above or run from source if you want to verify."
+            echo
+            echo "---"
             echo
             case "${VT_STATUS:-}" in
               already_present)
@@ -204,7 +208,7 @@ jobs:
                 echo "_CI submit error (\`${VT_STATUS}\`). Hash link still works after a manual upload._"
                 ;;
               *)
-                echo "_CI status: \`${VT_STATUS:-unknown}\`._"
+                echo "_Submitted by the release workflow._"
                 ;;
             esac
           } > /tmp/release-notes.md
