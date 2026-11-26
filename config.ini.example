@@ -1,0 +1,17 @@
+; AutorunVT settings — copy to config.ini next to the app / portable exe.
+; Restart the app after editing.
+
+[app]
+name = AutorunVT
+
+[onepassword]
+; true  = launch via `op run` (Windows Hello / 1Password)
+; false = use [virustotal] api_key below (plaintext)
+enabled = false
+environment_id =
+; Environment variable name that 1Password injects (must match your Environment)
+secret_name = VT_API_KEY
+
+[virustotal]
+; Used only when [onepassword] enabled = false
+api_key =
