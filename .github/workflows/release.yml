@@ -143,24 +143,25 @@ jobs:
           fi
           test -n "$SHA"
 
-          # Previous semver tag (if any) — baseline for auto-generated notes.
-          # TAG does not exist yet, so the newest existing v* tag is the prior release.
+          # Previous semver tag (if any). TAG does not exist yet, so newest v* is prior.
           PREV="$(git tag -l 'v*' --sort=-version:refname | head -n1 || true)"
 
           {
             echo "## AutorunVT ${VER}"
             echo
-            echo "Portable Windows build (PyInstaller **onedir** — fewer AV false positives than onefile)."
+            echo "Portable Windows build (PyInstaller **onedir**, fewer AV false positives than onefile)."
             echo
-            echo "This release is a **convenient packaged stable build** of what is in the repo — not the only way to run AutorunVT. Prefer not to trust a binary? [Download or clone the source](https://github.com/${GITHUB_REPOSITORY}), copy \`config.ini.example\` → \`config.ini\`, and run \`pythonw AutorunVT.pyw\` yourself (Python 3.10+). An AI coding harness can do that for you if you want — it is optional, not required."
+            echo "This release is a **convenient packaged stable build** of what is in the repo, not the only way to run AutorunVT."
             echo
-            echo "1. Unzip the folder (keep \`_internal\` next to the exe — do not move the exe alone)"
+            echo "> Prefer not to trust a binary? [Download or clone the source](https://github.com/${GITHUB_REPOSITORY}), copy \`config.ini.example\` → \`config.ini\`, and run \`pythonw AutorunVT.pyw\` yourself (Python 3.10+)."
+            echo
+            echo "### Use Instructions"
+            echo
+            echo "1. Unzip the folder (keep \`_internal\` next to the exe; do not move the exe alone)"
             echo "2. Edit \`config.ini\` beside \`AutorunVT.exe\` (1Password **or** plaintext \`api_key\`)"
             echo "3. Run \`AutorunVT.exe\`"
             echo
             echo "Requires [Autoruns](https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns) (\`autorunsc64.exe\`) on the machine."
-            echo
-            echo "---"
             echo
 
             if [[ -z "${PREV}" ]]; then
@@ -169,8 +170,7 @@ jobs:
               echo "First public portable build of AutorunVT."
               echo
             else
-              # Inline generated notes so we can append VirusTotal *after* them
-              # (--generate-notes + --notes-file would put our VT block in the middle).
+              # Changelog since prior tag; VirusTotal section follows.
               echo "## What's Changed"
               echo
               gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
@@ -180,8 +180,6 @@ jobs:
               echo
             fi
 
-            echo "---"
-            echo
             echo "## VirusTotal"
             echo
             echo "SHA-256 of \`AutorunVT.exe\` (verify the file you unzipped matches this hash):"
@@ -190,25 +188,27 @@ jobs:
             echo "${SHA}"
             echo "\`\`\`"
             echo
-            echo "[View on VirusTotal](https://www.virustotal.com/gui/file/${SHA})"
+            echo "[![VirusTotal](https://img.shields.io/badge/VirusTotal-view_report-394EFF?style=for-the-badge\&logo=virustotal\&logoColor=white)](https://www.virustotal.com/gui/file/${SHA})"
             echo
-            echo "PyInstaller bundles (and new unsigned tools in general) often trip a **handful of AV false positives** on VirusTotal even when the source is clean. Treat the report as a signal, not a verdict — compare the hash above, read the source, or run from a clone instead of the zip if you are unsure."
+            echo "> PyInstaller builds often show a few AV false positives. Check the hash above or run from source if you want to verify."
+            echo
+            echo "---"
             echo
             case "${VT_STATUS:-}" in
               already_present)
-                echo "_This build was already known to VirusTotal (identical hash)._"
+                echo "_Already on VirusTotal (identical hash)._"
                 ;;
               uploaded*)
-                echo "_Submitted by the release workflow; open the link for vendor results._"
+                echo "_Submitted by the release workflow._"
                 ;;
               skipped_no_key)
-                echo "_CI could not submit (repo secret \`VT_API_KEY\` missing) — hash link still works after a manual upload._"
+                echo "_CI skip: repo secret \`VT_API_KEY\` missing. Hash link still works after a manual upload._"
                 ;;
               error*)
-                echo "_CI submit hit an error (\`${VT_STATUS}\`); hash link still works after a manual upload._"
+                echo "_CI submit error (\`${VT_STATUS}\`). Hash link still works after a manual upload._"
                 ;;
               *)
-                echo "_Open the link for scan results (CI status: \`${VT_STATUS:-unknown}\`)._"
+                echo "_Submitted by the release workflow._"
                 ;;
             esac
           } > /tmp/release-notes.md
