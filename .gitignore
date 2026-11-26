@@ -1,3 +1,11 @@
+# Local secrets — never commit; use config.ini.example
+config.ini
+
+# PyInstaller
+build/
+dist/
+*.spec.bak
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -31,6 +39,8 @@ MANIFEST
 #   before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+# Release packaging — must stay tracked
+!.github/autorunvt.spec
 
 # Installer logs
 pip-log.txt

@@ -1,0 +1,2 @@
+# Stdlib only on Windows CPython (tkinter + urllib).
+# No third-party packages required.

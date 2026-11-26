@@ -1,0 +1,223 @@
+name: Release portable
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "autorun_vt_audit/__init__.py"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rebuild even if tag already exists (replaces release assets)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-portable-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version
+        id: ver
+        shell: bash
+        run: |
+          VER=$(python -c "import re; t=open('autorun_vt_audit/__init__.py', encoding='utf-8').read(); m=re.search(r'__version__\s*=\s*[\"\\']([^\"\\']+)', t); assert m, 'missing __version__'; print(m.group(1))")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VER" >> "$GITHUB_OUTPUT"
+          if git rev-parse "v$VER" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip if tag exists
+        id: gate
+        shell: bash
+        run: |
+          if [[ "${{ steps.ver.outputs.tag_exists }}" == "true" && "${{ github.event_name }}" == "push" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Tag ${{ steps.ver.outputs.tag }} already exists — no release."
+          elif [[ "${{ steps.ver.outputs.tag_exists }}" == "true" && "${{ inputs.force }}" != "true" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Tag exists; pass force=true to rebuild."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Python
+        if: steps.gate.outputs.skip != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Ensure Azure ttk theme
+        if: steps.gate.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          $tcl = "vendor/azure-ttk-theme/azure.tcl"
+          if (-not (Test-Path $tcl)) {
+            New-Item -ItemType Directory -Force -Path vendor | Out-Null
+            if (Test-Path vendor/azure-ttk-theme) { Remove-Item -Recurse -Force vendor/azure-ttk-theme }
+            git clone --depth 1 https://github.com/rdbende/Azure-ttk-theme.git vendor/azure-ttk-theme
+          }
+          if (-not (Test-Path $tcl)) { throw "Azure theme missing: $tcl" }
+
+      - name: Install PyInstaller
+        if: steps.gate.outputs.skip != 'true'
+        shell: pwsh
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Build onedir bundle
+        if: steps.gate.outputs.skip != 'true'
+        shell: pwsh
+        run: python -m PyInstaller --noconfirm --clean .github/autorunvt.spec
+
+      - name: Stage portable zip
+        if: steps.gate.outputs.skip != 'true'
+        shell: pwsh
+        env:
+          VER: ${{ steps.ver.outputs.version }}
+        run: |
+          $built = "dist/AutorunVT"
+          if (-not (Test-Path "$built/AutorunVT.exe")) {
+            throw "Expected onedir output at $built/AutorunVT.exe"
+          }
+          $name = "AutorunVT-$env:VER-windows-x64"
+          $stage = "dist/$name"
+          if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item -Recurse -Force "$built/*" $stage/
+          Copy-Item config.ini.example "$stage/config.ini" -Force
+          python .github/scripts/scrub_ini.py "$stage/config.ini"
+          # MIT requires copyright notice with redistributed theme
+          Copy-Item vendor/azure-ttk-theme/LICENSE "$stage/LICENSE-Azure-ttk-theme.txt" -Force
+          Compress-Archive -Path $stage -DestinationPath "dist/$name.zip" -Force
+          Get-Item "dist/$name.zip" | Format-List Name, Length
+
+      - name: Submit exe to VirusTotal
+        id: vt
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+          VER: ${{ steps.ver.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXE="dist/AutorunVT-${VER}-windows-x64/AutorunVT.exe"
+          test -f "$EXE"
+          # Soft-fail inside the script if the secret is missing or VT errors —
+          # release notes still get the SHA-256 link either way.
+          python .github/scripts/vt_submit_exe.py "$EXE" --github-output --wait 90
+
+      - name: Create GitHub Release
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VER: ${{ steps.ver.outputs.version }}
+          VT_SHA: ${{ steps.vt.outputs.sha256 }}
+          VT_STATUS: ${{ steps.vt.outputs.status }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="dist/AutorunVT-${VER}-windows-x64.zip"
+          EXE="dist/AutorunVT-${VER}-windows-x64/AutorunVT.exe"
+          test -f "$EXE"
+
+          SHA="${VT_SHA:-}"
+          if [[ -z "$SHA" ]]; then
+            SHA="$(powershell -NoProfile -Command \
+              "(Get-FileHash -LiteralPath '$EXE' -Algorithm SHA256).Hash.ToLower()")"
+            SHA="${SHA//$'\r'/}"
+          fi
+          test -n "$SHA"
+
+          # Previous semver tag (if any) — baseline for auto-generated notes.
+          # TAG does not exist yet, so the newest existing v* tag is the prior release.
+          PREV="$(git tag -l 'v*' --sort=-version:refname | head -n1 || true)"
+
+          {
+            echo "## AutorunVT ${VER}"
+            echo
+            echo "Portable Windows build (PyInstaller **onedir** — fewer AV false positives than onefile)."
+            echo
+            echo "This release is a **convenient packaged stable build** of what is in the repo — not the only way to run AutorunVT. Prefer not to trust a binary? [Download or clone the source](https://github.com/${GITHUB_REPOSITORY}), copy \`config.ini.example\` → \`config.ini\`, and run \`pythonw AutorunVT.pyw\` yourself (Python 3.10+). An AI coding harness can do that for you if you want — it is optional, not required."
+            echo
+            echo "1. Unzip the folder (keep \`_internal\` next to the exe — do not move the exe alone)"
+            echo "2. Edit \`config.ini\` beside \`AutorunVT.exe\` (1Password **or** plaintext \`api_key\`)"
+            echo "3. Run \`AutorunVT.exe\`"
+            echo
+            echo "Requires [Autoruns](https://learn.microsoft.com/en-us/sysinternals/downloads/autoruns) (\`autorunsc64.exe\`) on the machine."
+            echo
+            echo "---"
+            echo
+
+            if [[ -z "${PREV}" ]]; then
+              echo "## Initial release"
+              echo
+              echo "First public portable build of AutorunVT."
+              echo
+            else
+              # Inline generated notes so we can append VirusTotal *after* them
+              # (--generate-notes + --notes-file would put our VT block in the middle).
+              echo "## What's Changed"
+              echo
+              gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+                -f tag_name="$TAG" \
+                -f previous_tag_name="$PREV" \
+                --jq .body
+              echo
+            fi
+
+            echo "---"
+            echo
+            echo "## VirusTotal"
+            echo
+            echo "SHA-256 of \`AutorunVT.exe\` (verify the file you unzipped matches this hash):"
+            echo
+            echo "\`\`\`"
+            echo "${SHA}"
+            echo "\`\`\`"
+            echo
+            echo "[View on VirusTotal](https://www.virustotal.com/gui/file/${SHA})"
+            echo
+            echo "PyInstaller bundles (and new unsigned tools in general) often trip a **handful of AV false positives** on VirusTotal even when the source is clean. Treat the report as a signal, not a verdict — compare the hash above, read the source, or run from a clone instead of the zip if you are unsure."
+            echo
+            case "${VT_STATUS:-}" in
+              already_present)
+                echo "_This build was already known to VirusTotal (identical hash)._"
+                ;;
+              uploaded*)
+                echo "_Submitted by the release workflow; open the link for vendor results._"
+                ;;
+              skipped_no_key)
+                echo "_CI could not submit (repo secret \`VT_API_KEY\` missing) — hash link still works after a manual upload._"
+                ;;
+              error*)
+                echo "_CI submit hit an error (\`${VT_STATUS}\`); hash link still works after a manual upload._"
+                ;;
+              *)
+                echo "_Open the link for scan results (CI status: \`${VT_STATUS:-unknown}\`)._"
+                ;;
+            esac
+          } > /tmp/release-notes.md
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --clobber
+            exit 0
+          fi
+
+          gh release create "$TAG" "$ZIP" \
+            --title "AutorunVT ${VER}" \
+            --notes-file /tmp/release-notes.md
