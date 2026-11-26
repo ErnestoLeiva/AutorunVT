@@ -186,7 +186,7 @@ jobs:
             echo "${SHA}"
             echo "\`\`\`"
             echo
-            echo "[View on VirusTotal](https://www.virustotal.com/gui/file/${SHA})"
+            echo "[![VirusTotal](https://img.shields.io/badge/VirusTotal-view_report-394EFF?style=for-the-badge\&logo=virustotal\&logoColor=white)](https://www.virustotal.com/gui/file/${SHA})"
             echo
             echo "PyInstaller builds often show a few AV false positives. Check the hash above or run from source if you want to verify."
             echo
